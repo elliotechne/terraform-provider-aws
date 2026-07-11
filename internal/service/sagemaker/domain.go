@@ -1636,6 +1636,10 @@ func resourceDomainUpdate(ctx context.Context, d *schema.ResourceData, meta any)
 			input.DefaultSpaceSettings = expanDefaultSpaceSettings(v.([]any))
 		}
 
+		if d.HasChange(names.AttrSubnetIDs) {
+			input.SubnetIds = flex.ExpandStringValueSet(d.Get(names.AttrSubnetIDs).(*schema.Set))
+		}
+
 		if v, ok := d.GetOk("tag_propagation"); ok {
 			input.TagPropagation = awstypes.TagPropagation(v.(string))
 		}
@@ -2628,7 +2632,7 @@ func flattenUserSettings(config *awstypes.UserSettings) []map[string]any {
 		m["r_session_app_settings"] = flattenRSessionAppSettings(config.RSessionAppSettings)
 	}
 
-	if config.SecurityGroups != nil {
+	if len(config.SecurityGroups) > 0 {
 		m[names.AttrSecurityGroups] = flex.FlattenStringValueSet(config.SecurityGroups)
 	}
 
@@ -2650,8 +2654,8 @@ func flattenUserSettings(config *awstypes.UserSettings) []map[string]any {
 		m["r_studio_server_pro_app_settings"] = flattenRStudioServerProAppSettings(config.RStudioServerProAppSettings)
 	}
 
-	if config.StudioWebPortalSettings != nil {
-		m["studio_web_portal_settings"] = flattenStudioWebPortalSettings(config.StudioWebPortalSettings)
+	if v := config.StudioWebPortalSettings; v != nil && (len(v.HiddenAppTypes) > 0 || len(v.HiddenInstanceTypes) > 0 || len(v.HiddenMlTools) > 0) {
+		m["studio_web_portal_settings"] = flattenStudioWebPortalSettings(v)
 	}
 
 	return []map[string]any{m}

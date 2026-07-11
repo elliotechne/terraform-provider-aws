@@ -42,6 +42,7 @@ func TestAccSageMaker_serial(t *testing.T) {
 		"Domain": {
 			acctest.CtBasic:                            testAccDomain_basic,
 			acctest.CtDisappears:                       testAccDomain_disappears,
+			"subnetIDs":                                testAccDomain_subnetIDs,
 			"tags":                                     testAccDomain_tags,
 			"tensorboardAppSettings":                   testAccDomain_tensorboardAppSettings,
 			"tensorboardAppSettingsWithImage":          testAccDomain_tensorboardAppSettingsWithImage,

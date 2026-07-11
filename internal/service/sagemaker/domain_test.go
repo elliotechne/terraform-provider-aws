@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/YakDriver/regexache"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	awstypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -1225,6 +1226,43 @@ func testAccDomain_jupyterServerAppSettings_code(t *testing.T) {
 	})
 }
 
+func testAccDomain_subnetIDs(t *testing.T) {
+	ctx := acctest.Context(t)
+	var domain sagemaker.DescribeDomainOutput
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+	resourceName := "aws_sagemaker_domain.test"
+
+	acctest.Test(ctx, t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.SageMakerServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckDomainDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccDomainConfig_subnetIDs(rName, 1),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckDomainExists(ctx, t, resourceName, &domain),
+					testAccCheckDomainSubnetIDCount(&domain, 1),
+					resource.TestCheckResourceAttr(resourceName, "subnet_ids.#", "1"),
+				),
+			},
+			{
+				Config: testAccDomainConfig_subnetIDs(rName, 2),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionUpdate),
+					},
+				},
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckDomainExists(ctx, t, resourceName, &domain),
+					testAccCheckDomainSubnetIDCount(&domain, 2),
+					resource.TestCheckResourceAttr(resourceName, "subnet_ids.#", "2"),
+				),
+			},
+		},
+	})
+}
+
 func testAccDomain_disappears(t *testing.T) {
 	ctx := acctest.Context(t)
 	var domain sagemaker.DescribeDomainOutput
@@ -1911,6 +1949,16 @@ func testAccCheckDomainExists(ctx context.Context, t *testing.T, n string, codeR
 	}
 }
 
+func testAccCheckDomainSubnetIDCount(domain *sagemaker.DescribeDomainOutput, count int) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		if got := len(domain.SubnetIds); got != count {
+			return fmt.Errorf("expected SageMaker AI Domain (%s) to have %d subnet ID(s) per the DescribeDomain API response, got %d: %v", aws.ToString(domain.DomainId), count, got, domain.SubnetIds)
+		}
+
+		return nil
+	}
+}
+
 func testAccDomainConfig_base(rName string) string {
 	return acctest.ConfigCompose(acctest.ConfigVPCWithSubnets(rName, 1), fmt.Sprintf(`
 data "aws_partition" "current" {}
@@ -1941,6 +1989,53 @@ resource "aws_iam_role_policy_attachment" "test" {
 
 func testAccDomainConfig_basic(rName string) string {
 	return acctest.ConfigCompose(testAccDomainConfig_base(rName), fmt.Sprintf(`
+resource "aws_sagemaker_domain" "test" {
+  domain_name = %[1]q
+  auth_mode   = "IAM"
+  vpc_id      = aws_vpc.test.id
+  subnet_ids  = aws_subnet.test[*].id
+
+  default_user_settings {
+    execution_role = aws_iam_role.test.arn
+  }
+
+  retention_policy {
+    home_efs_file_system = "Delete"
+  }
+}
+`, rName))
+}
+
+func testAccDomainConfig_subnetIDsBase(rName string, subnetCount int) string {
+	return acctest.ConfigCompose(acctest.ConfigVPCWithSubnets(rName, subnetCount), fmt.Sprintf(`
+data "aws_partition" "current" {}
+
+resource "aws_iam_role" "test" {
+  name               = %[1]q
+  path               = "/"
+  assume_role_policy = data.aws_iam_policy_document.test.json
+}
+
+data "aws_iam_policy_document" "test" {
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["sagemaker.${data.aws_partition.current.dns_suffix}"]
+    }
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "test" {
+  role       = aws_iam_role.test.name
+  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonSageMakerFullAccess"
+}
+`, rName))
+}
+
+func testAccDomainConfig_subnetIDs(rName string, subnetCount int) string {
+	return acctest.ConfigCompose(testAccDomainConfig_subnetIDsBase(rName, subnetCount), fmt.Sprintf(`
 resource "aws_sagemaker_domain" "test" {
   domain_name = %[1]q
   auth_mode   = "IAM"
